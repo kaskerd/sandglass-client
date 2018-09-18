@@ -61,3 +61,13 @@ typings/
 
 # OSX generated files
 *.DS_Store
+
+# Python files
+bin
+lib
+include
+.Python
+pip-selfcheck.json
+__pycache__
+.mypy_cache
+*.pyc

@@ -1,0 +1,226 @@
+syntax = "proto3";
+option go_package = "sgproto";
+package sandglass;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+import "github.com/gogo/protobuf/gogoproto/gogo.proto";
+
+option (gogoproto.equal_all) = true;
+option (gogoproto.goproto_stringer_all) = false;
+option (gogoproto.stringer_all) =  true;
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.sizer_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+
+message Message {
+    string channel = 5;
+    uint64 index = 10;
+    bytes offset = 11 [(gogoproto.customtype) = "Offset", (gogoproto.nullable) = false];
+    google.protobuf.Timestamp producedAt = 12 [(gogoproto.stdtime) = true, (gogoproto.nullable) = false];
+    google.protobuf.Duration consumeIn = 13 [(gogoproto.stdduration) = true, (gogoproto.nullable) = false];
+
+    bytes key = 20;
+    bytes clusteringKey = 21;
+
+    bytes value = 30;
+}
+
+message ProduceMessageRequest {
+    string topic = 1;
+    string partition = 2;
+    repeated Message messages = 3;
+}
+
+message ProduceResponse {
+    repeated bytes offsets = 1 [(gogoproto.customtype) = "Offset", (gogoproto.nullable) = false];
+}
+
+enum TopicKind {
+    TimerKind = 0;
+    KVKind = 1;
+}
+
+enum StorageDriver {
+    RocksDB = 0;
+    Badger = 1;
+}
+
+message TopicConfig {
+    string name = 1;    
+    TopicKind kind = 2;  
+    int32 replicationFactor = 3;
+    int32 numPartitions = 4;  
+    StorageDriver storageDriver = 5;
+}
+
+message GetTopicParams {
+    string name = 1;
+}
+
+message GetTopicReply {
+    string name = 1;
+    repeated string partitions = 2;
+}
+
+message TopicReply {
+    bool success = 1;
+}
+
+
+message StoreLocallyReply {
+    bool success = 1;
+}
+
+message FetchFromRequest {
+    string topic = 1;
+    string partition = 2;
+    string channel = 4;
+    bytes from = 3 [(gogoproto.customtype) = "Offset", (gogoproto.nullable) = false];
+}
+
+message FetchRangeRequest {
+    string topic = 1;
+    string partition = 2;
+    string channel = 5;
+    bytes from = 3 [(gogoproto.customtype) = "Offset", (gogoproto.nullable) = false];
+    bytes to = 4 [(gogoproto.customtype) = "Offset", (gogoproto.nullable) = false];
+}
+
+message GetRequest {
+    string topic = 1;
+    string partition = 2;
+    string channel = 5;
+    bytes key = 3;
+    bytes clusteringKey = 4;
+}
+
+message ConsumeFromGroupRequest {
+    string topic = 1;
+    string partition = 2;
+    string channel = 5;
+    string consumerGroupName = 3;
+    string consumerName = 4;
+}
+
+message MarkRequest {
+    string topic = 1;
+    string partition = 2;
+    string channel = 7;
+    string consumerGroup = 3;
+    string consumerName = 4;
+    repeated bytes offsets = 5 [(gogoproto.customtype) = "Offset", (gogoproto.nullable) = false];
+    MarkState state = 6;
+}
+
+message MarkResponse {
+    bool success = 1;
+}
+
+message GetMarkRequest {
+    string topic = 1;
+    string partition = 2;
+    string channel = 6;
+    string consumerGroup = 3;
+    string consumerName = 4;
+    bytes offset = 5 [(gogoproto.customtype) = "Offset", (gogoproto.nullable) = false];
+}
+
+message LastOffsetReply {
+    bytes offset = 1 [(gogoproto.customtype) = "Offset", (gogoproto.nullable) = false];
+}
+
+enum MarkKind {
+    Unknown = 0;
+    Consumed = 10;
+    NotAcknowledged = 20;
+    Acknowledged = 30;
+    Commited = 40;
+}
+
+message LastOffsetRequest {
+    string topic = 1;
+    string partition = 2;
+    string channel = 6;
+    string consumerGroup = 3;
+    string consumerName = 4;
+    
+
+    MarkKind kind = 5;
+}
+
+message FetchFromSyncRequest {
+    string topic = 1;
+    string partition = 2;
+    bytes from = 3;
+}
+
+message HasResponse {
+    bool exists = 1;
+}
+
+message MarkState {
+    MarkKind kind = 1;
+    int32 deliveryCount = 2;
+}
+
+service BrokerService {
+    rpc CreateTopic (TopicConfig) returns (TopicReply) {
+        option (google.api.http) = { 
+            post: "/topics" 
+            body: "*"
+        };
+    }
+
+    rpc GetTopic (GetTopicParams) returns (GetTopicReply) {
+        option (google.api.http) = { 
+            get: "/topics/{name}"
+        };
+    }
+    
+
+    rpc Produce (ProduceMessageRequest) returns (ProduceResponse) {
+        option (google.api.http) = { 
+            post: "/topics/{topic}" 
+            additional_bindings {
+                post: "/topics/{topic}/{partition}"
+            }
+            body: "*"
+        };
+    }
+
+    rpc FetchFrom (FetchFromRequest) returns (stream Message) {}
+    rpc FetchRange (FetchRangeRequest) returns (stream Message) {}
+
+    rpc ConsumeFromGroup (ConsumeFromGroupRequest) returns (stream Message) {
+        option (google.api.http) = { 
+            get: "/topics/{topic}/{partition}" 
+            additional_bindings {
+                get: "/topics/{topic}/{partition}/{consumerGroupName}/{consumerName}"
+            }
+        };
+    }
+
+
+    rpc Acknowledge (MarkRequest) returns (MarkResponse) {}
+    rpc NotAcknowledge (MarkRequest) returns (MarkResponse) {}
+}
+
+message EndOfLogRequest {
+    string topic = 1;
+    string partition = 2;
+}
+message EndOfLogReply {
+    uint64 index = 1;
+}
+
+service InternalService {
+    rpc GetByKey (GetRequest) returns (Message) {}
+    rpc HasKey (GetRequest) returns (HasResponse) {}
+    rpc FetchFromSync (FetchFromSyncRequest) returns (stream Message) {}
+    rpc LastOffset (LastOffsetRequest) returns (LastOffsetReply) {}
+    rpc Mark (MarkRequest) returns (MarkResponse) {}
+    rpc GetMarkStateMessage (GetMarkRequest) returns (Message) {}
+    rpc EndOfLog (EndOfLogRequest) returns (EndOfLogReply) {}
+}
