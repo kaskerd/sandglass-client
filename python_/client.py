@@ -30,7 +30,7 @@ class Client(object):
 
 
 class Consumer(object):
-  
+
   def __init__(self, client, topic, partition, group, name):
     self._client = client
     self._topic = topic
